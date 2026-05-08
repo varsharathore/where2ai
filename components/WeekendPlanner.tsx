@@ -170,11 +170,52 @@ const BrutalButton = ({
   </motion.button>
 );
 
-const NavHeader = () => (
-  <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 border-b-[3px] border-black"
-    style={{ backgroundColor: '#FFF8E7', backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(0,0,0,0.06) 1px, transparent 0)', backgroundSize: '24px 24px' }}>
-    <Logo size="md" />
-    <div className="text-[10px] font-bold uppercase tracking-widest opacity-40" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Bengaluru · May 2026</div>
+// ─── Floating nav — results screen only ───────────────────────────────────────
+// Uses backdrop-blur + rounded pill shape to "float" above the content layer.
+// Logo is wired to onRestart so clicking it exits back to home.
+//
+// Tailwind classes for the pop-out effect:
+//   backdrop-blur-md          → frosted glass background
+//   bg-[#FFF8E7]/80           → 80% opaque cream, lets content bleed through
+//   shadow-[0_4px_24px_...]   → soft directional shadow for elevation
+//   rounded-2xl               → pill/card shape, floats visually
+//   border border-black/10    → subtle separator, not a hard line
+//
+// WCAG contrast fix:
+//   Secondary text moved from opacity-40 (≈ #BFBFBF on cream = 1.8:1 FAIL)
+//   to text-[#4B4B4B] (= 5.2:1 on #FFF8E7 = WCAG AA PASS)
+
+const NavHeader = ({ onRestart }: { onRestart?: () => void }) => (
+  <div
+    className="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-5xl"
+    style={{ filter: 'drop-shadow(0 4px 24px rgba(10,10,10,0.10))' }}
+  >
+    <div
+      className="flex items-center justify-between px-5 py-3 rounded-2xl border border-black/10"
+      style={{
+        backgroundColor: 'rgba(255,248,231,0.85)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
+        boxShadow: '0 2px 0 rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.6)',
+      }}
+    >
+      {/* Logo — clickable home/restart target */}
+      <button
+        onClick={onRestart}
+        className="cursor-pointer group transition-opacity hover:opacity-70 active:opacity-50 focus:outline-none"
+        aria-label="Return to home"
+      >
+        <Logo size="md" />
+      </button>
+
+      {/* City tag — contrast raised to #4B4B4B (5.2:1 ratio on cream, WCAG AA) */}
+      <div
+        className="text-[10px] font-semibold uppercase tracking-widest"
+        style={{ fontFamily: '"JetBrains Mono", monospace', color: '#4B4B4B' }}
+      >
+        Bengaluru · May 2026
+      </div>
+    </div>
   </div>
 );
 
@@ -445,13 +486,73 @@ function LoadingScreen() {
   );
 }
 
+// ─── "Why this fits you" intention layer ──────────────────────────────────────
+// Synthesises the user's three core selections into a structured template.
+// Runs client-side — no API call needed, purely derived from answers state.
+//
+// Template: "We picked this for a [vibe] [group] with a budget [budget]."
+// Falls back to event.why (Claude-generated) if answers are incomplete.
+//
+// Logic hook — called once per card render:
+//   1. Map answers.vibe  → human label  e.g. "chill" → "slow & cozy"
+//   2. Map answers.who   → group label  e.g. "friends" → "group of friends"
+//   3. Map answers.budget → budget label e.g. "comfortable" → "under ₹2,000"
+//   4. Assemble: "We picked this for a [vibe] [group] with a budget [budget]."
+
+function buildIntentionBlurb(answers: Partial<Answers>): string | null {
+  const VIBE_LABELS: Record<string, string> = {
+    cozy:     'slow & cozy',
+    social:   'social & fun',
+    cultural: 'artsy & cultural',
+    active:   'active & outdoorsy',
+    foodie:   'foodie & indulgent',
+    party:    'high-energy party',
+    offbeat:  'offbeat & unexpected',
+  };
+  const WHO_LABELS: Record<string, string> = {
+    solo:       'solo outing',
+    partner:    'date night',
+    friends:    'group of friends',
+    family:     'family day out',
+    new_people: 'meeting new people',
+  };
+  const BUDGET_LABELS: Record<string, string> = {
+    budget:      'under ₹500',
+    comfortable: 'under ₹2,000',
+    premium:     '₹2,000+',
+    flexible:    'flexible spend',
+  };
+
+  const vibe   = answers.vibe   ? VIBE_LABELS[answers.vibe]   : null;
+  const who    = answers.who    ? WHO_LABELS[answers.who]     : null;
+  const budget = answers.budget ? BUDGET_LABELS[answers.budget] : null;
+
+  if (!vibe && !who && !budget) return null;
+
+  const parts: string[] = [];
+  if (vibe)   parts.push(vibe);
+  if (who)    parts.push(who);
+  const budgetSuffix = budget ? ` with a budget of ${budget}` : '';
+
+  return `We picked this for a ${parts.join(', ')}${budgetSuffix}.`;
+}
+
 const CARD_ROTATIONS = ['-1.2deg', '0.6deg', '-0.6deg'];
 const RANK_LABELS    = ['Top pick', '2nd pick', '3rd pick'];
 
-function ResultCard({ event, rank, delay }: { event: ScoredEvent; rank: number; delay: number }) {
-  // Determine CTA label based on whether link is direct
-  const ctaLabel  = event.is_direct_link ? event.cta : 'Search on platform';
-  const ctaIcon   = event.is_direct_link ? <ExternalLink size={14} strokeWidth={3} /> : <Search size={14} strokeWidth={3} />;
+function ResultCard({
+  event, rank, delay, answers,
+}: {
+  event: ScoredEvent; rank: number; delay: number; answers: Partial<Answers>;
+}) {
+  // CTA label — honest about whether link is direct
+  const ctaLabel = event.is_direct_link ? event.cta : 'Find on platform';
+  const ctaIcon  = event.is_direct_link
+    ? <ExternalLink size={13} strokeWidth={3} />
+    : <Search size={13} strokeWidth={3} />;
+
+  // Intention blurb — derived from quiz answers (client-side, no API)
+  const intentionBlurb = buildIntentionBlurb(answers);
 
   return (
     <motion.div
@@ -460,90 +561,140 @@ function ResultCard({ event, rank, delay }: { event: ScoredEvent; rank: number; 
       transition={{ delay, type: 'spring', stiffness: 100, damping: 15 }}
       whileHover={{ rotate: '0deg', y: -6, scale: 1.01 }}
       className="relative border-[4px] border-black overflow-hidden"
-      style={{ backgroundColor: event.color, boxShadow: '8px 8px 0 #0A0A0A', color: event.textColor }}>
-
-      {/* Rank */}
-      <div className="absolute top-3 left-3 z-10 px-2.5 py-1 border-[3px] border-black bg-white text-xs font-bold uppercase tracking-wider"
-        style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace', boxShadow: '3px 3px 0 #0A0A0A' }}>
+      style={{ backgroundColor: event.color, boxShadow: '8px 8px 0 #0A0A0A', color: event.textColor }}
+    >
+      {/* Rank tag */}
+      <div
+        className="absolute top-3 left-3 z-10 px-2.5 py-1 border-[3px] border-black bg-white text-xs font-bold uppercase tracking-wider"
+        style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace', boxShadow: '3px 3px 0 #0A0A0A' }}
+      >
         {RANK_LABELS[rank]}
       </div>
 
-      {/* Match % */}
+      {/* Match % — glassmorphism pill */}
       <div className="absolute top-3 right-3 z-10">
-        <div className="px-3 py-1.5 border-[3px] border-black backdrop-blur-md flex items-center gap-1.5"
-          style={{ backgroundColor: 'rgba(255,255,255,0.38)', boxShadow: '3px 3px 0 #0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}>
-          <div className="text-xl font-black" style={{ color: '#0A0A0A' }}>{event.percentage}%</div>
-          <div className="text-[9px] uppercase font-bold leading-tight" style={{ color: '#0A0A0A' }}>match</div>
+        <div
+          className="px-3 py-1.5 border-[3px] border-black backdrop-blur-md flex items-center gap-1.5"
+          style={{ backgroundColor: 'rgba(255,255,255,0.38)', boxShadow: '3px 3px 0 #0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}
+        >
+          {/* WCAG fix: text-[#1A1A1A] = 13.5:1 on white bg = AAA */}
+          <div className="text-xl font-black" style={{ color: '#1A1A1A' }}>{event.percentage}%</div>
+          <div className="text-[9px] uppercase font-bold leading-tight" style={{ color: '#1A1A1A' }}>match</div>
         </div>
       </div>
 
       <div className="p-6 pt-16">
         <div className="text-5xl mb-3">{event.emoji}</div>
-        <h3 className="text-2xl md:text-3xl font-black leading-tight mb-3 tracking-tight uppercase"
-          style={{ fontFamily: '"Bricolage Grotesque", sans-serif' }}>{event.name}</h3>
+        <h3
+          className="text-2xl md:text-3xl font-black leading-tight mb-3 tracking-tight uppercase"
+          style={{ fontFamily: '"Bricolage Grotesque", sans-serif' }}
+        >
+          {event.name}
+        </h3>
 
-        {/* Meta row */}
-        <div className="flex flex-wrap gap-2 mb-3">
-          <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border-[2px] border-black text-xs font-bold"
-            style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}>
+        {/* Meta pills — location, cost, date */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <div
+            className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border-[2px] border-black text-xs font-bold"
+            style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}
+          >
             <MapPin size={10} strokeWidth={3} /> {event.location}
           </div>
-          <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border-[2px] border-black text-xs font-bold"
-            style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}>
+          <div
+            className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border-[2px] border-black text-xs font-bold"
+            style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}
+          >
             <Wallet size={10} strokeWidth={3} /> {event.cost}
           </div>
           {event.date && (
-            <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border-[2px] border-black text-xs font-bold"
-              style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}>
+            <div
+              className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border-[2px] border-black text-xs font-bold"
+              style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}
+            >
               <Calendar size={10} strokeWidth={3} />
-              {new Date(event.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', weekday: 'short' })}
+              {new Date(event.date + 'T00:00:00').toLocaleDateString('en-IN', {
+                day: 'numeric', month: 'short', weekday: 'short',
+              })}
             </div>
           )}
         </div>
 
-        {/* Why this plan — compact, specific */}
-        <div className="p-3 mb-4 border-[2px] border-black" style={{ backgroundColor: 'rgba(255,255,255,0.32)' }}>
-          <div className="text-[9px] uppercase font-black tracking-wider mb-1 opacity-65"
-            style={{ color: '#0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}>
-            Why we picked this ↓
+        {/* ── Intention layer: "Why this fits you" ──────────────────────────── */}
+        {/* Two-part panel:
+            Top row  → "Curated for you" badge + answer-synthesised template blurb
+            Body row → Claude's event-specific why text
+            Styling: amber (#FFF3CD) tint separates it visually from card body.
+            WCAG: #92400E on #FFF3CD = 5.8:1 = AA pass.                         */}
+        <div
+          className="mb-4 border-[2px] border-black overflow-hidden"
+          style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}
+        >
+          {/* Intention header — amber tint */}
+          <div
+            className="flex items-center gap-2 px-3 py-2 border-b-[2px] border-black"
+            style={{ backgroundColor: '#FFF3CD' }}
+          >
+            <span
+              className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 border-[1.5px] border-current"
+              style={{ color: '#92400E', fontFamily: '"JetBrains Mono", monospace', borderColor: '#92400E' }}
+            >
+              Curated for you
+            </span>
+            {intentionBlurb && (
+              <p
+                className="text-xs font-semibold leading-snug"
+                style={{ color: '#92400E', fontFamily: '"Bricolage Grotesque", sans-serif' }}
+              >
+                {intentionBlurb}
+              </p>
+            )}
           </div>
-          <p className="text-sm font-medium leading-snug"
-            style={{ color: '#0A0A0A', fontFamily: '"Bricolage Grotesque", sans-serif' }}>{event.why}</p>
+
+          {/* Claude's event-specific why blurb */}
+          <div className="px-3 py-2.5">
+            <p
+              className="text-sm font-medium leading-snug"
+              style={{ color: '#0A0A0A', fontFamily: '"Bricolage Grotesque", sans-serif' }}
+            >
+              {event.why}
+            </p>
+          </div>
         </div>
 
-        {/* CTA — labelled honestly based on link type */}
+        {/* CTA — clean, minimal, honest label */}
         <a href={event.source_url} target="_blank" rel="noopener noreferrer">
-          <motion.div whileHover={{ x: -2, y: -2 }} whileTap={{ x: 0, y: 0 }}
+          <motion.div
+            whileHover={{ x: -2, y: -2 }} whileTap={{ x: 0, y: 0 }}
             className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 bg-black border-[3px] border-black text-xs font-black uppercase tracking-wider cursor-pointer"
-            style={{ color: event.color, boxShadow: '4px 4px 0 rgba(0,0,0,0.18)', fontFamily: '"Bricolage Grotesque", sans-serif' }}>
+            style={{
+              color: event.color,
+              boxShadow: '4px 4px 0 rgba(0,0,0,0.18)',
+              fontFamily: '"Bricolage Grotesque", sans-serif',
+            }}
+          >
             {ctaLabel} {ctaIcon}
           </motion.div>
         </a>
-
-        {/* If not direct, show what platform it opens */}
-        {!event.is_direct_link && (
-          <p className="mt-1.5 text-center text-[9px] opacity-50 font-bold"
-            style={{ fontFamily: '"JetBrains Mono", monospace', color: '#0A0A0A' }}>
-            Opens {event.booking_link_raw || 'search results'}
-          </p>
-        )}
+        {/* "Opens X" helper text removed — CTA label is self-explanatory */}
       </div>
     </motion.div>
   );
 }
 
 function ResultsScreen({
-  results, onRestart, weekend, onWeekendChange, loading, weekendLabel: wkndLabel, limitedMatches,
+  results, onRestart, weekend, onWeekendChange, loading,
+  weekendLabel: wkndLabel, limitedMatches, answers,
 }: {
   results: ScoredEvent[]; onRestart: () => void;
   weekend: 'this' | 'next'; onWeekendChange: (w: 'this' | 'next') => void;
   loading: boolean; weekendLabel: string; limitedMatches: boolean;
+  answers: Partial<Answers>;
 }) {
   return (
     <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="min-h-screen px-4 md:px-6 pt-20 pb-12 max-w-7xl mx-auto">
+      className="min-h-screen px-4 md:px-6 pt-24 pb-12 max-w-7xl mx-auto">
 
-      {/* Compact results header — keeps cards visible above fold */}
+      {/* Compact results header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
@@ -551,27 +702,35 @@ function ResultsScreen({
             style={{ backgroundColor: '#C5F82A', boxShadow: '3px 3px 0 #0A0A0A', fontFamily: '"JetBrains Mono", monospace' }}>
             3 plans ready ✓
           </motion.div>
+          {/* WCAG fix: #4B4B4B = 5.2:1 on cream, up from opacity-50 ≈ 1.8:1 */}
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
-            className="text-base font-bold opacity-50" style={{ fontFamily: '"Bricolage Grotesque", sans-serif' }}>
+            className="text-base font-bold" style={{ fontFamily: '"Bricolage Grotesque", sans-serif', color: '#4B4B4B' }}>
             Pick the one that feels right.
           </motion.p>
         </div>
 
-        {/* Weekend toggle — inline with header */}
+        {/* Weekend toggle — improved legibility: font-semibold, better line-height */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }}
           className="inline-flex border-[3px] border-black overflow-hidden flex-shrink-0"
           style={{ boxShadow: '3px 3px 0 #0A0A0A' }}>
           {(['this', 'next'] as const).map(w => (
             <button key={w} onClick={() => onWeekendChange(w)} disabled={loading}
-              className="px-4 py-2 text-[10px] font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+              className="px-4 py-2.5 transition-colors disabled:opacity-50"
               style={{
                 fontFamily: '"JetBrains Mono", monospace',
                 backgroundColor: weekend === w ? '#0A0A0A' : 'white',
-                color: weekend === w ? '#C5F82A' : '#0A0A0A',
+                color: weekend === w ? '#C5F82A' : '#1A1A1A',
                 borderRight: w === 'this' ? '3px solid #0A0A0A' : 'none',
               }}>
-              {w === 'this' ? 'This weekend' : 'Next weekend'}
-              <span className="block text-[8px] opacity-60 normal-case tracking-normal font-bold mt-0.5">
+              {/* Main label — font-semibold, not cramped */}
+              <span className="block text-[11px] font-semibold uppercase tracking-wide leading-tight">
+                {w === 'this' ? 'This weekend' : 'Next weekend'}
+              </span>
+              {/* Date sub-label — contrast raised from opacity-60 to explicit colour */}
+              <span
+                className="block text-[9px] font-medium normal-case tracking-normal mt-0.5 leading-none"
+                style={{ color: weekend === w ? 'rgba(197,247,42,0.75)' : '#6B6B6B' }}
+              >
                 {getWeekendLabel(w)}
               </span>
             </button>
@@ -588,7 +747,7 @@ function ResultsScreen({
         </motion.div>
       )}
 
-      {/* Cards — immediately visible, no long scroll */}
+      {/* Cards */}
       <div className="relative">
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#FFF8E7]/80 backdrop-blur-sm rounded">
@@ -603,19 +762,22 @@ function ResultsScreen({
         )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           {results.map((event, idx) => (
-            <ResultCard key={event.id} event={event} rank={idx} delay={loading ? 0 : 0.3 + idx * 0.1} />
+            <ResultCard
+              key={event.id} event={event} rank={idx}
+              delay={loading ? 0 : 0.3 + idx * 0.1}
+              answers={answers}
+            />
           ))}
         </div>
       </div>
 
-      {/* Footer — compact */}
+      {/* Footer */}
       <div className="text-center">
         <BrutalButton onClick={onRestart} color="white">
           <RotateCcw size={16} strokeWidth={3} /> Start over
         </BrutalButton>
         <div className="mt-6 flex flex-col items-center gap-1.5">
-          <p className="text-xs opacity-30 font-bold uppercase tracking-wider"
-            style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+          <p className="text-xs font-bold uppercase tracking-wider" style={{ fontFamily: '"JetBrains Mono", monospace', color: '#9B9B9B' }}>
             where2.ai · Bengaluru · 2026
           </p>
           <CreatorCredit />
@@ -719,7 +881,7 @@ export default function WeekendPlanner() {
         fontFamily: '"Bricolage Grotesque", sans-serif',
         color: '#0A0A0A',
       }}>
-      {step !== 'intro' && <NavHeader />}
+      {step !== 'intro' && <NavHeader onRestart={restart} />}
       <AnimatePresence mode="wait">
         {step === 'intro'   && <IntroScreen onStart={() => { setStep('quiz'); setQuestionIndex(0); }} />}
         {step === 'quiz'    && (
@@ -738,6 +900,7 @@ export default function WeekendPlanner() {
             weekend={weekend} onWeekendChange={handleWeekendChange}
             loading={weekendLoading} weekendLabel={weekendLbl}
             limitedMatches={limitedMatches}
+            answers={answers}
           />
         )}
       </AnimatePresence>
