@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, ArrowLeft, MapPin, Wallet, RotateCcw, ExternalLink, Check } from 'lucide-react';
 import type { Answers, ScoredEvent, Trigger } from '@/lib/types';
@@ -451,11 +451,33 @@ function ResultCard({ event, rank, delay }: { event: ScoredEvent; rank: number; 
   );
 }
 
-function ResultsScreen({ results, onRestart }: { results: ScoredEvent[]; onRestart: () => void }) {
+// ─── Weekend date helpers (client side) ───────────────────────────────────────
+
+function getWeekendLabel(which: 'this' | 'next'): string {
+  const today = new Date();
+  const day = today.getDay();
+  const daysUntilFri = day === 5 ? 0 : day === 6 ? 6 : (5 - day + 7) % 7;
+  const fri = new Date(today);
+  fri.setDate(today.getDate() + daysUntilFri + (which === 'next' ? 7 : 0));
+  const sun = new Date(fri);
+  sun.setDate(fri.getDate() + 2);
+  const fmt = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return `${fmt(fri)} – ${fmt(sun)}`;
+}
+
+function ResultsScreen({
+  results, onRestart, weekend, onWeekendChange, loading,
+}: {
+  results: ScoredEvent[];
+  onRestart: () => void;
+  weekend: 'this' | 'next';
+  onWeekendChange: (w: 'this' | 'next') => void;
+  loading: boolean;
+}) {
   return (
     <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="min-h-screen px-6 pt-24 pb-16 max-w-7xl mx-auto">
-      <div className="text-center mb-12">
+      <div className="text-center mb-8">
         <motion.div initial={{ scale: 0, rotate: -10 }} animate={{ scale: 1, rotate: -2 }}
           transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
           className="inline-block mb-6 px-4 py-2 border-[3px] border-black"
@@ -468,26 +490,73 @@ function ResultsScreen({ results, onRestart }: { results: ScoredEvent[]; onResta
           Your weekend,<br />sorted.
         </motion.h1>
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-          className="text-lg font-medium opacity-50 max-w-lg mx-auto"
+          className="text-lg font-medium opacity-50 max-w-lg mx-auto mb-8"
           style={{ fontFamily: '"Bricolage Grotesque", sans-serif' }}>
           Ranked by how well they match your answers. Pick the one that feels right.
         </motion.p>
+
+        {/* Weekend toggle */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }}
+          className="inline-flex border-[3px] border-black overflow-hidden"
+          style={{ boxShadow: '4px 4px 0 #0A0A0A' }}>
+          {(['this', 'next'] as const).map(w => (
+            <button key={w} onClick={() => onWeekendChange(w)}
+              disabled={loading}
+              className="px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+              style={{
+                fontFamily: '"JetBrains Mono", monospace',
+                backgroundColor: weekend === w ? '#0A0A0A' : 'white',
+                color: weekend === w ? '#C5F82A' : '#0A0A0A',
+                borderRight: w === 'this' ? '3px solid #0A0A0A' : 'none',
+              }}>
+              {w === 'this' ? 'This weekend' : 'Next weekend'}
+              <span className="block text-[9px] opacity-70 normal-case tracking-normal font-bold mt-0.5">
+                {getWeekendLabel(w)}
+              </span>
+            </button>
+          ))}
+        </motion.div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-6 mb-16">
-        {results.map((event, idx) => (
-          <ResultCard key={event.id} event={event} rank={idx} delay={0.4 + idx * 0.15} />
-        ))}
+      {/* Cards or loading overlay */}
+      <div className="relative">
+        {loading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#FFF8E7]/80 backdrop-blur-sm">
+            <div className="text-center">
+              <motion.div animate={{ rotate: [0, 360] }} transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
+                className="text-5xl mb-3">🌀</motion.div>
+              <p className="font-black text-lg" style={{ fontFamily: '"Bricolage Grotesque", sans-serif' }}>
+                Updating plans...
+              </p>
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-6 mb-12">
+          {results.map((event, idx) => (
+            <ResultCard key={event.id} event={event} rank={idx} delay={loading ? 0 : 0.4 + idx * 0.15} />
+          ))}
+        </div>
       </div>
 
+      {/* Footer */}
       <div className="text-center">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}>
           <BrutalButton onClick={onRestart} color="white">
             <RotateCcw size={18} strokeWidth={3} /> Start over
           </BrutalButton>
         </motion.div>
-        <p className="mt-6 text-xs opacity-35 font-bold uppercase tracking-wider" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+
+        <p className="mt-8 text-xs opacity-35 font-bold uppercase tracking-wider"
+          style={{ fontFamily: '"JetBrains Mono", monospace' }}>
           where2.ai · Bengaluru · 2026
+        </p>
+        <p className="mt-2 text-xs opacity-40" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+          Made by{' '}
+          <a href="https://linkedin.com/in/varshasinghrathore" target="_blank" rel="noopener noreferrer"
+            className="underline hover:opacity-70 transition-opacity">Varsha Rathore</a>
+          {' · '}
+          <a href="https://instagram.com/roamwithrains" target="_blank" rel="noopener noreferrer"
+            className="underline hover:opacity-70 transition-opacity">📷 roamwithrains</a>
         </p>
       </div>
     </motion.div>
@@ -504,6 +573,12 @@ export default function WeekendPlanner() {
   const [answers,       setAnswers]       = useState<Partial<Answers>>({});
   const [hardNos,       setHardNos]       = useState<Trigger[]>([]);
   const [results,       setResults]       = useState<ScoredEvent[]>([]);
+  const [weekend,       setWeekend]       = useState<'this' | 'next'>('this');
+  const [weekendLoading, setWeekendLoading] = useState(false);
+
+  // Store last answers/hardNos so weekend toggle can re-fetch
+  const lastAnswers  = React.useRef<Partial<Answers>>({});
+  const lastHardNos  = React.useRef<Trigger[]>([]);
 
   const handleAnswer = (id: string, value: string) => {
     const updated = { ...answers, [id]: value };
@@ -523,36 +598,47 @@ export default function WeekendPlanner() {
   const toggleHardNo = (value: Trigger) =>
     setHardNos(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
 
-  const submitQuiz = async () => {
-    setStep('loading');
+  const fetchPlans = async (ans: Partial<Answers>, nos: Trigger[], wknd: 'this' | 'next') => {
     try {
       const res = await fetch('/api/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, hardNos }),
+        body: JSON.stringify({ answers: ans, hardNos: nos, weekend: wknd }),
       });
       if (!res.ok) throw new Error('API error');
       const data = await res.json();
-      setResults(data.results);
-    } catch (err) {
-      console.error('API failed, using local fallback:', err);
-      // Dynamic import so local scorer is not bundled into client JS
+      return data.results as ScoredEvent[];
+    } catch {
       const { scoreEvents, generateLocalWhy } = await import('@/lib/scorer');
       const { transformEvents } = await import('@/lib/transformer');
       const rawData = await import('@/data/events.json');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const events = transformEvents((rawData as any).events ?? rawData);
-      const fallback = scoreEvents(events, answers as Answers, [])
+      return scoreEvents(events, ans as Answers, [])
         .slice(0, 3)
-        .map(e => ({ ...e, why: generateLocalWhy(e, answers as Answers) }));
-      setResults(fallback);
-    } finally {
-      setStep('results');
+        .map(e => ({ ...e, why: generateLocalWhy(e, ans as Answers) }));
     }
   };
 
+  const submitQuiz = async () => {
+    setStep('loading');
+    lastAnswers.current = answers;
+    lastHardNos.current = hardNos;
+    const res = await fetchPlans(answers, hardNos, weekend);
+    setResults(res);
+    setStep('results');
+  };
+
+  const handleWeekendChange = async (w: 'this' | 'next') => {
+    setWeekend(w);
+    setWeekendLoading(true);
+    const res = await fetchPlans(lastAnswers.current, lastHardNos.current, w);
+    setResults(res);
+    setWeekendLoading(false);
+  };
+
   const restart = () => {
-    setStep('intro'); setQuestionIndex(0); setAnswers({}); setHardNos([]); setResults([]);
+    setStep('intro'); setQuestionIndex(0); setAnswers({}); setHardNos([]); setResults([]); setWeekend('this');
   };
 
   return (
@@ -571,7 +657,7 @@ export default function WeekendPlanner() {
         {step === 'quiz'    && <QuizScreen questionIndex={questionIndex} answers={answers} onAnswer={handleAnswer} onBack={handleBack} totalQuestions={QUESTIONS.length} />}
         {step === 'hardno'  && <HardNoScreen hardNos={hardNos} onToggle={toggleHardNo} onSubmit={submitQuiz} onBack={handleBack} />}
         {step === 'loading' && <LoadingScreen />}
-        {step === 'results' && <ResultsScreen results={results} onRestart={restart} />}
+        {step === 'results' && <ResultsScreen results={results} onRestart={restart} weekend={weekend} onWeekendChange={handleWeekendChange} loading={weekendLoading} />}
       </AnimatePresence>
     </div>
   );

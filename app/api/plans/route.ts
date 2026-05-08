@@ -4,6 +4,23 @@ import { transformEvents } from '@/lib/transformer';
 import { scoreEvents, generateLocalWhy } from '@/lib/scorer';
 import type { PlansRequest, PlansResponse, ScoredEvent } from '@/lib/types';
 
+// ─── Weekend date helpers ──────────────────────────────────────────────────────
+
+function getWeekendDates(which: 'this' | 'next'): { label: string; dates: string[] } {
+  const today = new Date();
+  const day = today.getDay(); // 0=Sun … 6=Sat
+  const daysUntilFri = day === 5 ? 0 : day === 6 ? 6 : (5 - day + 7) % 7;
+  const fri = new Date(today);
+  fri.setDate(today.getDate() + daysUntilFri + (which === 'next' ? 7 : 0));
+  const dates = [0, 1, 2].map(d => {
+    const dt = new Date(fri);
+    dt.setDate(fri.getDate() + d);
+    return dt.toISOString().split('T')[0];
+  });
+  const fmt = (s: string) => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return { label: `${fmt(dates[0])} – ${fmt(dates[2])}`, dates };
+}
+
 // Import your events JSON — drop your file at /data/events.json
 import rawData from '@/data/events.json';
 
@@ -40,9 +57,11 @@ OUTPUT FORMAT (JSON array, nothing else):
 
 function buildUserPrompt(request: PlansRequest, candidates: ScoredEvent[]): string {
   const { answers, hardNos } = request;
+  const weekend = getWeekendDates(request.weekend ?? 'this');
 
   const prefsText = `
 USER PREFERENCES:
+- Weekend: ${weekend.label} (${request.weekend === 'next' ? 'next' : 'this'} weekend)
 - Company:    ${answers.who}
 - Weekend vibe: ${answers.vibe}
 - Energy/effort: ${answers.effort}

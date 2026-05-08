@@ -83,6 +83,7 @@ export interface ScoredEvent extends NormalisedEvent {
 export interface PlansRequest {
   answers: Answers;
   hardNos: Trigger[];
+  weekend: 'this' | 'next';
 }
 
 export interface PlansResponse {
