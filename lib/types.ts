@@ -44,6 +44,7 @@ export interface NormalisedEvent {
   name: string;
   emoji: string;
   location: string;
+  date: string | null;        // ISO date string e.g. "2026-05-10"
   cost: string;
   cost_bracket: Budget;
   vibe: Vibe;
@@ -52,8 +53,11 @@ export interface NormalisedEvent {
   companions: Who[];
   risk: Risk;
   triggers: Trigger[];
-  cta: string;
-  cta_url: string;
+  // URL handling — kept separate so UI can label correctly
+  source_url: string;         // most specific URL available
+  booking_link_raw: string;   // original booking_link field from JSON
+  is_direct_link: boolean;    // true = direct event page, false = platform homepage
+  cta: string;                // button label
   description: string;
   color: string;
   textColor: string;
@@ -88,5 +92,7 @@ export interface PlansRequest {
 
 export interface PlansResponse {
   results: ScoredEvent[];
-  source: 'claude' | 'local'; // tells the UI which path was used
+  source: 'claude' | 'local';
+  weekendLabel: string;
+  limitedMatches: boolean;    // true = fewer than 3 exact date matches found
 }

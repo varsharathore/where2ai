@@ -236,7 +236,52 @@ function inferTriggers(raw: RawEvent): Trigger[] {
   return [...triggers];
 }
 
-// ─── CTA text ─────────────────────────────────────────────────────────────────
+// ─── URL helpers ─────────────────────────────────────────────────────────────
+
+const GENERIC_DOMAINS = [
+  'allevents.in', 'bookmyshow.com', 'insider.in', 'district.in',
+  'highape.com', 'paytm.com', 'eventbrite.com', 'meetup.com',
+  'tripadvisor.com', 'zomato.com', 'swiggy.com',
+];
+
+function isDirectLink(url: string): boolean {
+  if (!url || url === '#') return false;
+  try {
+    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+    const host = u.hostname.replace('www.', '');
+    // A direct link has a path beyond the domain root
+    const hasPath = u.pathname.length > 1;
+    const isGenericDomain = GENERIC_DOMAINS.includes(host);
+    return hasPath && !isGenericDomain;
+  } catch {
+    return false;
+  }
+}
+
+function resolveSourceUrl(raw: RawEvent): { url: string; isDirect: boolean } {
+  const candidates = [
+    raw.source_url,
+    raw.booking_link,
+  ].filter((u): u is string => !!u && u.trim() !== '');
+
+  // Prefer whichever has a real path (most specific)
+  for (const u of candidates) {
+    const full = u.startsWith('http') ? u : `https://${u}`;
+    if (isDirectLink(full)) return { url: full, isDirect: true };
+  }
+
+  // Fall back to platform homepage or Google search
+  if (candidates.length > 0) {
+    const u = candidates[0];
+    const full = u.startsWith('http') ? u : `https://${u}`;
+    // If it looks like just a domain name, use it as-is
+    return { url: full, isDirect: false };
+  }
+
+  // Nothing available — build a Google search
+  const query = encodeURIComponent(`${raw.name ?? ''} Bengaluru tickets`);
+  return { url: `https://www.google.com/search?q=${query}`, isDirect: false };
+}
 
 function inferCta(raw: RawEvent): string {
   const cat = (raw.category ?? '').toLowerCase();
@@ -268,29 +313,29 @@ export function transformEvent(raw: RawEvent, index: number): NormalisedEvent {
   const vibe   = inferVibe(raw);
   const alts   = ALT_COLORS[vibe];
   const style  = index % 3 === 0 ? VIBE_STYLE[vibe] : alts[index % alts.length] ?? VIBE_STYLE[vibe];
+  const { url, isDirect } = resolveSourceUrl(raw);
 
   return {
-    id:          raw.id,
-    name:        raw.name,
-    emoji:       VIBE_STYLE[vibe].emoji,
-    location:    formatLocation(raw),
-    cost:        formatCost(raw),
+    id:           raw.id,
+    name:         raw.name,
+    emoji:        VIBE_STYLE[vibe].emoji,
+    location:     formatLocation(raw),
+    date:         raw.date ?? null,
+    cost:         formatCost(raw),
     cost_bracket: inferBudget(raw),
     vibe,
-    effort:      inferEffort(raw),
-    feelings:    inferFeelings(raw),
-    companions:  inferCompanions(raw),
-    risk:        inferRisk(raw),
-    triggers:    inferTriggers(raw),
-    cta:         inferCta(raw),
-    cta_url:     raw.source_url
-                   ? raw.source_url
-                   : raw.booking_link && raw.booking_link.startsWith('http')
-                     ? raw.booking_link
-                     : `https://www.google.com/search?q=${encodeURIComponent((raw.name ?? '') + ' Bengaluru tickets')}`,
-    description: raw.description || `${raw.category} event in ${raw.area || 'Bengaluru'}.`,
-    color:       style.color,
-    textColor:   style.textColor,
+    effort:       inferEffort(raw),
+    feelings:     inferFeelings(raw),
+    companions:   inferCompanions(raw),
+    risk:         inferRisk(raw),
+    triggers:     inferTriggers(raw),
+    source_url:       url,
+    booking_link_raw: raw.booking_link ?? '',
+    is_direct_link:   isDirect,
+    cta:          inferCta(raw),
+    description:  raw.description || `${raw.category} event in ${raw.area || 'Bengaluru'}.`,
+    color:        style.color,
+    textColor:    style.textColor,
   };
 }
 
